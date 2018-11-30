@@ -68,7 +68,9 @@ int main()
   IndexedVectorArray vq ;
   IndexedVectorArray aq ;
   IndexedVectorArray aq_ref ;
+
   controlPrototyping::IntegralPassivityBasedControl intglPassCntrl(model.nv);
+  intglPassCntrl.setSamplingTime(dt);
 
   IndexedVectorArray q_error;
   IndexedVectorArray vq_error;
@@ -101,24 +103,36 @@ int main()
       integralPassivity
     } torqueMode;
 
-    torqueMode = kinematicFeedback;
+    torqueMode = integralPassivity;
 
     if (torqueMode == kinematicFeedback)
     {
       //////////////////////getting the reference acceleration /////////////////
       double gainp = 50 ; 
       double gainv = 2*sqrt(gainp);
+      
       Vector aq_ref_current  = aq_des[i] + gainv * (vq_des[i]-vq_current) + gainp * (q_des[i]-q_current);
-      Matrix M = se3::crba(model,data,q_current);
-      M.triangularView<Eigen::StrictlyLower>() = M.transpose().triangularView<Eigen::StrictlyLower>();
-      Vector  b = se3::rnea(model,data,q_current,vq_current,aq0);
+      aq_ref.pushBack(aq_ref_current);      
+      
+      computeAllTerms(model, data, q_current, vq_current);
+      data.M.triangularView<Eigen::StrictlyLower>() = data.M.transpose().triangularView<Eigen::StrictlyLower>();
+      
+      tau = data.M * aq_ref_current + data.nle;
 
-      tau = M * aq_ref_current + b;
-      aq_ref.pushBack(aq_ref_current);
     }
     else if (torqueMode == integralPassivity)
     {
+      computeAllTerms(model, data, q_current, vq_current);
+      data.M.triangularView<Eigen::StrictlyLower>() = data.M.transpose().triangularView<Eigen::StrictlyLower>();
+
+      Matrix C = se3::computeCoriolisMatrix(model,data,q_current,vq_current );
       
+      Vector tau_des = data.M * aq_des[i] + data.nle;
+      
+
+      tau = intglPassCntrl.getTorque(tau_des,vq_des[i]-vq_current,q_des[i]-q_current,data.M,C);
+
+      // std::cout << tau.transpose() << std::endl;
     }
 
     /////////////////////getting real acceleration//////////
@@ -146,10 +160,6 @@ int main()
   aq_ref.writeInFile("TMP-aq_ref");
   q_error.writeInFile("TMP-q_error");
   vq_error.writeInFile("TMP-vq_error");
-
-//  Matrix C = se3::computeCoriolisMatrix(model,data,q,vq);
-
- 
 
   return 0;
 
