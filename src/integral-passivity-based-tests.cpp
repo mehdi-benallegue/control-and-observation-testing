@@ -1,5 +1,6 @@
 
 #include <yaml-cpp/yaml.h>
+
 #include <pinocchio/multibody/model.hpp>
 #include <pinocchio/multibody/data.hpp>
 #include <pinocchio/parsers/urdf.hpp>
@@ -7,16 +8,12 @@
 #include <pinocchio/algorithm/crba.hpp>
 #include <pinocchio/algorithm/dynamics.hpp>
 
-
 #include <state-observation/tools/definitions.hpp>
 
 #include <control-prototyping/integral-passivity-based-control.hpp>
 
-
-
-int main()
+int main(int argc, char *argv[])
 {
-
   using namespace stateObservation;
 
   YAML::Node config = YAML::LoadFile("config.yaml");
@@ -29,15 +26,17 @@ int main()
   se3::Data data(model);
 
   double dt = config["dt"].as<double>();
+  double amplitude = config["motion-amplitude"].as<double>();
 
   int iterations = int(config["Duration"].as<double>() / dt); //10seconds
 
   ///////////// CREATION OF THE DESIRED TRAJECTORY ////////////
 
-  Vector q_des_current = Vector::Random(model.nq);
-  Vector vq_des_current = Vector::Random(model.nv);
-  Vector aq_des_current = Vector::Random(model.nv);
-  Vector jq_des_current = Vector::Random(model.nv); ///jerk
+  Vector q_des_current = tools::stringToVector(config["initial-q-des"].as<std::string>());
+  Vector vq_des_current = tools::stringToVector(config["initial-vq-des"].as<std::string>());
+  
+  Vector aq_des_current = Vector::Zero(model.nv);
+  Vector jq_des_current = Vector::Zero(model.nv); ///jerk
 
   IndexedVectorArray q_des;
   IndexedVectorArray vq_des;
@@ -46,15 +45,15 @@ int main()
 
   for (int i=0; i< iterations; ++i)
   {
+    jq_des_current = amplitude*Vector::Random(model.nv)-q_des_current- vq_des_current- aq_des_current;    
+    aq_des_current += jq_des_current*dt;
+    
+    q_des_current += vq_des_current*dt + aq_des_current*dt*dt/2;
+    vq_des_current += aq_des_current*dt;
+     
     q_des.pushBack(q_des_current);
     vq_des.pushBack(vq_des_current);
     aq_des.pushBack(aq_des_current);
-
-    q_des_current += vq_des_current*dt + aq_des_current*dt*dt/2;
-    vq_des_current += aq_des_current*dt;
-    aq_des_current += jq_des_current*dt;
-    jq_des_current = 10*Vector::Random(model.nv)-q_des_current- vq_des_current- aq_des_current;
-        
   }
 
 
@@ -72,27 +71,33 @@ int main()
   IndexedVectorArray aq_ref ;
   IndexedVectorArray power ;
   IndexedVectorArray energy ;
+  IndexedVectorArray torque ;
+
+  Vector q_current = tools::stringToVector(config["initial-q-real"].as<std::string>());
+  Vector vq_current = tools::stringToVector(config["initial-vq-real"].as<std::string>());
+  Vector aq_current = Vector::Zero(modelReal.nv);
+
+  Vector torque_bias = tools::stringToVector(config["torque-bias"].as<std::string>());
+  double torque_factor = config["torque-factor"].as<double>();
 
   controlPrototyping::IntegralPassivityBasedControl intglPassCntrl(model.nv);
   intglPassCntrl.setSamplingTime(dt);
 
+  IndexedVectorArray q_error_int;
   IndexedVectorArray q_error;
   IndexedVectorArray vq_error;
 
-  Vector q_current = Vector::Random(modelReal.nq);
-  Vector vq_current = Vector::Random(modelReal.nv);
-  Vector aq_current = Vector::Random(modelReal.nv);
-
   Vector aq0 = Vector::Zero(modelReal.nv);/// just a zero acceleration
 
+  Vector q_error_int_current(model.nv+1);
   Vector q_error_current(model.nv+1);
   Vector vq_error_current(model.nv+1);
 
+  q_error_int_current.setZero();
+  
   Vector power_current(1);
   Vector energy_current(1);
   energy_current.setZero();
-
- 
  
   double mu =  config["Passivity-basedPID_mu"].as<double>();
   double lambda = config["Passivity-basedPID_lambda"].as<double>();
@@ -119,32 +124,37 @@ int main()
 
   enum mode
   {
-    kinematicFeedback,
-    integralPassivity
+    kinematicFeedback=0,
+    integralPassivity=1
   } torqueMode;
 
-  std::string filePrefix;
 
-  switch (config["Torquemode"].as<int>())
+  std::string filePrefix;
+  if (argc==1)
   {
-  case 0: 
-    torqueMode = kinematicFeedback;
+    torqueMode = static_cast<mode>(config["Torquemode"].as<int>());
+  }
+  else
+  {
+    std::stringstream ss;
+    int mode_int;
+    ss << argv[1];
+    ss >> mode_int;
+    torqueMode = static_cast<mode>(mode_int);
+  }
+
+  switch (torqueMode)
+  {
+  case kinematicFeedback: 
     filePrefix = "kf";
     break;
-  case 1:
-    torqueMode = integralPassivity;
+  case integralPassivity:
     filePrefix = "ip";
   }
 
   ///////////////////Tracking of the desired trajectory ////////////
   for (int i=0; i< iterations; ++i)
   {
-
-    q.pushBack(q_current);
-    vq.pushBack(vq_current);
-    aq.pushBack(aq_current);
-
-    
 
     q_error_current.head(model.nv)=q_des[i]-q_current;
     vq_error_current.head(model.nv)=vq_des[i]-vq_current;
@@ -161,17 +171,19 @@ int main()
     if (torqueMode == kinematicFeedback)
     {
       //////////////////////getting the reference acceleration /////////////////
+
       double gainp = config["Kinematic_GainP"].as<double>(); 
       double gainv = config["Kinematic_GainV"].as<double>();
-      
-      Vector aq_ref_current  = aq_des[i] + gainv * (vq_des[i]-vq_current) + gainp * (q_des[i]-q_current);
+      double gaini = config["Kinematic_GainI"].as<double>();
+
+      Vector aq_ref_current  = aq_des[i] + gainv * (vq_des[i]-vq_current) + gainp * (q_des[i]-q_current)
+                              + gaini * q_error_int_current.head(model.nv);
       aq_ref.pushBack(aq_ref_current);      
       
       computeAllTerms(model, data, q_current, vq_current);
       data.M.triangularView<Eigen::StrictlyLower>() = data.M.transpose().triangularView<Eigen::StrictlyLower>();
       
       tau = data.M * aq_ref_current + data.nle;
-
     }
     else if (torqueMode == integralPassivity)
     {
@@ -192,8 +204,6 @@ int main()
       {
         Ka=Ka_multiplier*data.M;        
       }
-      
-
 
       intglPassCntrl.setGains(Ka,L,lambda,mu,gamma);
 
@@ -202,21 +212,29 @@ int main()
      // std::cout << tau.transpose() << std::endl;
     }
 
-    /////////////////////getting real acceleration//////////
+      /////////////////////getting real acceleration//////////
     aq_current=se3::forwardDynamics(modelReal, dataReal, q_current, vq_current, 
-                                           tau,Matrix::Zero(0,modelReal.nv),Vector::Zero(0));
+                                           tau*torque_factor+torque_bias,
+                                           Matrix::Zero(0,modelReal.nv),Vector::Zero(0));
 
     power_current(0)=tau.dot(vq_current);
     energy_current(0)+=fabs(power_current(0));
     power.pushBack(power_current);
     energy.pushBack(energy_current);
 
+    q_error_int_current.head(model.nv) += q_error_current.head(model.nv);
+    q_error_int_current(model.nv) = q_error_int_current.head(model.nv).norm();
+    q_error_int.pushBack(q_error_int_current);
+
     q_current += vq_current*dt + aq_current*dt*dt/2;
     vq_current += aq_current*dt;
 
-
-
+    q.pushBack(q_current);
+    vq.pushBack(vq_current);
+    aq.pushBack(aq_current);
+    torque.pushBack(tau);
   }
+
   q.writeInFile(filePrefix+"-q");
   vq.writeInFile(filePrefix+"-vq");
   aq.writeInFile(filePrefix+"-aq");
@@ -228,10 +246,7 @@ int main()
   vq_error.writeInFile(filePrefix+"-vq_error");
   power.writeInFile(filePrefix+"-power");
   energy.writeInFile(filePrefix+"-energy");
+  torque.writeInFile(filePrefix+"-torque");
 
- 
   return 0;
-
-
-  
 }
