@@ -23,7 +23,7 @@ INCLUDE(cmake/eigen.cmake)
 
 
 
-SET(PROJECT_NAME control-prototyping-test)
+SET(PROJECT_NAME control-and-observation-testing)
 SET(PROJECT_DESCRIPTION
   "Prototyping of simple controllers")
 SET(PROJECT_URL "")
@@ -33,12 +33,12 @@ ADD_REQUIRED_DEPENDENCY("state-observation")
 ADD_REQUIRED_DEPENDENCY("control-prototyping")
 ADD_REQUIRED_DEPENDENCY("pinocchio")
 ADD_REQUIRED_DEPENDENCY("yaml-cpp")
-
+ADD_REQUIRED_DEPENDENCY("eigen3 >= 3.0.0")
 
 SET(CUSTOM_HEADER_DIR "${PROJECT_NAME}")
 
 SET(${PROJECT_NAME}_HEADERS
-  #include/control-prototyping-test/file.hpp
+  #include/control-and-observation-testing/file.hpp
 )
 SET(CXX_DISABLE_WERROR TRUE)
 

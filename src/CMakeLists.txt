@@ -29,39 +29,45 @@ if(${_Eigen_VERSION} VERSION_LESS "3.2.0")
     add_definitions(-DEIGEN_VERSION_LESS_THAN_3_2)
 endif()
 
-
-
+INCLUDE_DIRECTORIES(${EIGEN3_INCLUDE_DIRS}) 
+INCLUDE_DIRECTORIES(${CMAKE_SOURCE_DIR}/include)
 ADDPREFIX(${PROJECT_NAME}_ABSOLUTE_HEADERS  "${CMAKE_SOURCE_DIR}/"  ${PROJECT_NAME}_HEADERS)
 
-SET(LIBRARY_NAME ${PROJECT_NAME})
 
-
-
-ADD_EXECUTABLE(${LIBRARY_NAME}
+ADD_EXECUTABLE(integral-passivity-based-tests
     integral-passivity-based-tests.cpp
   ${${PROJECT_NAME}_ABSOLUTE_HEADERS}
   )
   
+PKG_CONFIG_USE_DEPENDENCY(integral-passivity-based-tests state-observation)
+PKG_CONFIG_USE_DEPENDENCY(integral-passivity-based-tests pinocchio)
+PKG_CONFIG_USE_DEPENDENCY(integral-passivity-based-tests control-prototyping)
+PKG_CONFIG_USE_DEPENDENCY(integral-passivity-based-tests yaml-cpp)
+
+
+
   
-  INCLUDE_DIRECTORIES(${CMAKE_SOURCE_DIR}/include)
+ADD_EXECUTABLE(model-based-flex-estimation-tester
+    model-based-flex-estimation-tester.cpp
+  ${${PROJECT_NAME}_ABSOLUTE_HEADERS}
+  )
 
-PKG_CONFIG_USE_DEPENDENCY(${LIBRARY_NAME} state-observation)
-PKG_CONFIG_USE_DEPENDENCY(${LIBRARY_NAME} pinocchio)
-PKG_CONFIG_USE_DEPENDENCY(${LIBRARY_NAME} control-prototyping)
-PKG_CONFIG_USE_DEPENDENCY(${LIBRARY_NAME} yaml-cpp)
 
-SET_TARGET_PROPERTIES(${LIBRARY_NAME}
-  PROPERTIES
-  SOVERSION ${PROJECT_VERSION}
-  INSTALL_RPATH ${CMAKE_INSTALL_PREFIX}/lib)
+PKG_CONFIG_USE_DEPENDENCY(model-based-flex-estimation-tester state-observation)
+PKG_CONFIG_USE_DEPENDENCY(model-based-flex-estimation-tester pinocchio)
+PKG_CONFIG_USE_DEPENDENCY(model-based-flex-estimation-tester control-prototyping)
+PKG_CONFIG_USE_DEPENDENCY(model-based-flex-estimation-tester yaml-cpp)
 
-INSTALL(TARGETS ${LIBRARY_NAME}
-  DESTINATION ${CMAKE_INSTALL_PREFIX}/lib)
 
-TARGET_LINK_LIBRARIES(${LIBRARY_NAME} rt)
-ADD_REQUIRED_DEPENDENCY("eigen3 >= 3.0.0")
-INCLUDE_DIRECTORIES(${EIGEN3_INCLUDE_DIRS})
-SET(LINEAR_ALGEBRA_LIB_FOUND 1)
-SET(_EIGEN_MATRIX_FOUND_ 1)
+SET_TARGET_PROPERTIES(integral-passivity-based-tests 
+#model-based-flex-estimation-tester
+PROPERTIES SOVERSION ${PROJECT_VERSION}
+            INSTALL_RPATH ${CMAKE_INSTALL_PREFIX}/lib)
+
+INSTALL(TARGETS integral-passivity-based-tests 
+#model-based-flex-estimation-tester  
+DESTINATION ${CMAKE_INSTALL_PREFIX}/lib)
+
+
 
 
