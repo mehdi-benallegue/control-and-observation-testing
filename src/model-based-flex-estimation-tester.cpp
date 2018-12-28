@@ -26,18 +26,16 @@ int main (int argc, char *argv[])
     std::cout << "measurements inputs numberOfContacts dt m"<<std::endl;
     std::cout << "Parameters : "<<std::endl;
     std::cout << "Leaving"<<std::endl;
-
   }
   else
   {
     IndexedVectorArray y,u,numberOfContacts;
 
-
     bool withForces =true;
 
     IndexedMatrixArray Q, R;
 
-    int stateSize = flexibilityEstimation::ModelBaseEKFFlexEstimatorIMU::staticGetStateSize();
+    int stateSize = flexibilityEstimation::IMUElasticLocalFrameDynamicalSystem::state::size;
 
     Matrix3 Kfe,Kfv,Kte,Ktv;
 
@@ -46,6 +44,15 @@ int main (int argc, char *argv[])
     Kte.setZero();
     Ktv.setZero();
 
+   // std::cout <<"numberOfContacts " <<numberOfContacts.getLastIndex()<< " "
+   //           << numberOfContacts[numberOfContacts.getLastIndex()].size() << " "
+   //           << numberOfContacts[numberOfContacts.getLastIndex()] << " "
+   //           << std::endl;//<< " "<< numberOfContacts[2]<< " "<< numberOfContacts[3]<< " ";
+
+    Matrix xh0 = Vector::Zero(flexibilityEstimation::IMUElasticLocalFrameDynamicalSystem::state::size,1);
+
+    double dt;
+    double mass;
     
     if (argc!=2)
     {
@@ -59,12 +66,17 @@ int main (int argc, char *argv[])
       std::cout << "Read contact number, filename: "<<argv[3]<< std::endl;
       numberOfContacts.readVectorsFromFile(argv[3]);
       std::cout << "Contact numbers loaded, size:"<< numberOfContacts.size() << std::endl;
+
+      dt=atof(argv[4]);
+      std::cout << "dt "<< dt<<std::endl;
+      mass=atof(argv[5]);
+      std::cout << "Mass "<< mass<<std::endl;
     }
     else
     {
       std::cout << "Read Configuration file : " << argv[1] << std::endl;
       YAML::Node config = YAML::LoadFile(argv[1]);
-
+      std::cout << "Done " << std::endl;
 
       std::cout << "Read Sensors filename: " << config["measurementFile"].as<std::string>() << std::endl;
       y.readVectorsFromFile(config["measurementFile"].as<std::string>());
@@ -73,9 +85,18 @@ int main (int argc, char *argv[])
       u.readVectorsFromFile(config["inputFile"].as<std::string>());
       std::cout << "Inputs loaded, size:"<< u.size() << std::endl;
 
+      dt=config["dt"].as<double>();
+      std::cout << "dt "<< dt<<std::endl;
+      mass=config["mass"].as<double>();
+      std::cout << "Mass "<< mass<<std::endl;
+
+      if (config["xh0"].IsDefined())
+      {
+        xh0 = tools::stringToVector(config["xh0"].as<std::string>());
+        std::cout << "xh" << xh0.transpose() << std::endl;
+      }
 
       bool constantNumberOfContact=true;
-
 
       if (config["contactsNumberFile"].IsDefined())
       {
@@ -99,19 +120,18 @@ int main (int argc, char *argv[])
       }
       else
       {
-        std::cout << "Read contact number " << config["contactsNumber"].as<std::string>() << std::endl;
+        std::cout << "Set contact number " << config["contactsNumber"].as<std::string>() << std::endl;
         
-        for(size_t i = 0; i < u.size(); i++)
+        for(size_t i = u.getFirstIndex(); i < u.getNextIndex(); i++)
         {
-          
+          numberOfContacts.setValue(Vector1::Constant(config["contactsNumber"].as<double>()), i);
         }
-        
-        numberOfContacts.pushBack(Vector1::Constant(config["contactsNumber"].as<int>()) );
       }
 
       if (config["withForces"].IsDefined())
       {
         withForces = config["withForces"].as<bool>();
+        std::cout << "The forces are used?: "<< numberOfContacts.size() << std::endl;
       }
       
       if (config["Qfile"].IsDefined())
@@ -178,7 +198,7 @@ int main (int argc, char *argv[])
         {
           if (withForces)
           {
-            unsigned contacts = unsigned(numberOfContacts[i](0));
+            unsigned contacts = unsigned(numberOfContacts[numberOfContacts.getFirstIndex()](0));
             Ri.conservativeResize(6+contacts*6,6+contacts*6);
             Ri.block(0,6,6,contacts*6).setZero();
             Ri.block(6,0,contacts*6,contacts*6+6).setZero();
@@ -188,7 +208,6 @@ int main (int argc, char *argv[])
             }            
           }          
         }
-
         R.pushBack(Ri);
       }
 
@@ -197,7 +216,7 @@ int main (int argc, char *argv[])
         std::cout << "Reading linear stiffness matrix "<< std::endl;
         Kfe = tools::stringToMatrix(config["Kfe"].as<std::string>(),3,3);
       }
-      else if (config["kfeDiag"].IsDefined()) 
+      else if (config["KfeDiag"].IsDefined()) 
       {
         std::cout << "Reading linear stiffness matrix diagonal"<< std::endl;
         Kfe.diagonal() = tools::stringToVector(config["KfeDiag"].as<std::string>());
@@ -208,7 +227,7 @@ int main (int argc, char *argv[])
         std::cout << "Reading linear damping matrix "<< std::endl;
         Kfv = tools::stringToMatrix(config["Kfv"].as<std::string>(),3,3);
       }
-      else if (config["kfvDiag"].IsDefined()) 
+      else if (config["KfvDiag"].IsDefined()) 
       {
         std::cout << "Reading linear damping matrix diagonal"<< std::endl;
         Kfv.diagonal() = tools::stringToVector(config["KfvDiag"].as<std::string>());
@@ -219,7 +238,7 @@ int main (int argc, char *argv[])
         std::cout << "Reading angular stiffness matrix "<< std::endl;
         Kte = tools::stringToMatrix(config["Kte"].as<std::string>(),3,3);
       }
-      else if (config["kteDiag"].IsDefined()) 
+      else if (config["KfeDiag"].IsDefined()) 
       {
         std::cout << "Readinf angular damping matrix diagonal"<< std::endl;
         Kfe.diagonal() = tools::stringToVector(config["KfeDiag"].as<std::string>());
@@ -230,30 +249,17 @@ int main (int argc, char *argv[])
         std::cout << "Reading angular damping matrix "<< std::endl;
         Ktv = tools::stringToMatrix(config["Ktv"].as<std::string>(),3,3);
       }
-      else if (config["ktvDiag"].IsDefined()) 
+      else if (config["KtvDiag"].IsDefined()) 
       {
         std::cout << "Reading angular damping matrix diagonal"<< std::endl;
         Kfv.diagonal() = tools::stringToVector(config["KtvDiag"].as<std::string>());
       }
-      
     }
-
-    
-
-   // std::cout <<"numberOfContacts " <<numberOfContacts.getLastIndex()<< " "
-   //           << numberOfContacts[numberOfContacts.getLastIndex()].size() << " "
-   //           << numberOfContacts[numberOfContacts.getLastIndex()] << " "
-   //           << std::endl;//<< " "<< numberOfContacts[2]<< " "<< numberOfContacts[3]<< " ";
-
-    Matrix xh0 = Vector::Zero(flexibilityEstimation::IMUElasticLocalFrameDynamicalSystem::state::size,1);
-
-    double dt=atof(argv[4]);
-    double mass=atof(argv[5]);
 
     std::cout << "Rebuiding state" << std::endl;
     IndexedVectorArray xhat=
       examples::offlineModelBaseFlexEstimation( y, u, xh0, numberOfContacts, dt, mass, withForces,
-                                               IndexedMatrixArray(), IndexedMatrixArray(),Kfe, Kfv, Kte, Ktv,
+                                                Q, R , Kfe, Kfv, Kte, Ktv,
                                                 0x0,0x0,0x0,0x0,1);
     std::cout << "State rebuilt" << std::endl;
 
